@@ -14,9 +14,40 @@ struct Proc {
     command: String,
 }
 
+struct Options {
+    root: Option<u32>,
+    ascii: bool,
+}
+
+struct BranchChars {
+    tee: &'static str,
+    corner: &'static str,
+    vertical: &'static str,
+    blank: &'static str,
+}
+
+const UNICODE_BRANCHES: BranchChars = BranchChars {
+    tee: "├─ ",
+    corner: "└─ ",
+    vertical: "│  ",
+    blank: "   ",
+};
+
+const ASCII_BRANCHES: BranchChars = BranchChars {
+    tee: "|- ",
+    corner: "`- ",
+    vertical: "|  ",
+    blank: "   ",
+};
+
 fn main() {
     let args: Vec<String> = env::args().collect();
-    let root_filter = parse_args(&args);
+    let opts = parse_args(&args);
+    let branches = if opts.ascii {
+        &ASCII_BRANCHES
+    } else {
+        &UNICODE_BRANCHES
+    };
 
     let stdin = io::stdin();
     let mut procs: HashMap<u32, Proc> = HashMap::new();
@@ -53,7 +84,7 @@ fn main() {
 
     let children = build_children_index(&procs, &order);
 
-    let roots: Vec<u32> = match root_filter {
+    let roots: Vec<u32> = match opts.root {
         Some(pid) => {
             if procs.contains_key(&pid) {
                 vec![pid]
@@ -75,39 +106,62 @@ fn main() {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let mut visited: HashMap<u32, bool> = HashMap::new();
-    for root in roots {
-        print_tree(root, &procs, &children, 0, &mut out, &mut visited);
+    let last_root = roots.len().saturating_sub(1);
+    for (i, root) in roots.into_iter().enumerate() {
+        print_tree(
+            root,
+            &procs,
+            &children,
+            "",
+            i == last_root,
+            true,
+            &mut out,
+            &mut visited,
+            branches,
+        );
     }
 }
 
-fn parse_args(args: &[String]) -> Option<u32> {
-    match args.get(1).map(|s| s.as_str()) {
-        None => None,
-        Some("-h") | Some("--help") => {
-            print_usage();
-            exit(0);
-        }
-        Some("--root") => {
-            let pid_str = args.get(2).unwrap_or_else(|| {
-                eprintln!("pstree-stream: --root requires a pid argument");
+fn parse_args(args: &[String]) -> Options {
+    let mut opts = Options {
+        root: None,
+        ascii: false,
+    };
+    let mut i = 1;
+    while i < args.len() {
+        match args[i].as_str() {
+            "-h" | "--help" => {
+                print_usage();
+                exit(0);
+            }
+            "--root" => {
+                let pid_str = args.get(i + 1).unwrap_or_else(|| {
+                    eprintln!("pstree-stream: --root requires a pid argument");
+                    exit(1);
+                });
+                let pid: u32 = pid_str.parse().unwrap_or_else(|_| {
+                    eprintln!("pstree-stream: invalid pid '{pid_str}'");
+                    exit(1);
+                });
+                opts.root = Some(pid);
+                i += 2;
+            }
+            "--ascii" => {
+                opts.ascii = true;
+                i += 1;
+            }
+            other => {
+                eprintln!("pstree-stream: unknown argument '{other}'");
+                print_usage();
                 exit(1);
-            });
-            let pid: u32 = pid_str.parse().unwrap_or_else(|_| {
-                eprintln!("pstree-stream: invalid pid '{pid_str}'");
-                exit(1);
-            });
-            Some(pid)
-        }
-        Some(other) => {
-            eprintln!("pstree-stream: unknown argument '{other}'");
-            print_usage();
-            exit(1);
+            }
         }
     }
+    opts
 }
 
 fn print_usage() {
-    eprintln!("usage: pstree-stream [--root PID]");
+    eprintln!("usage: pstree-stream [--root PID] [--ascii]");
     eprintln!("reads lines of 'PID PPID COMMAND' from stdin and prints a tree");
 }
 
@@ -141,23 +195,52 @@ fn print_tree(
     pid: u32,
     procs: &HashMap<u32, Proc>,
     children: &HashMap<u32, Vec<u32>>,
-    depth: usize,
+    prefix: &str,
+    is_last: bool,
+    is_root: bool,
     out: &mut impl Write,
     visited: &mut HashMap<u32, bool>,
+    branches: &BranchChars,
 ) {
+    let connector = if is_root {
+        ""
+    } else if is_last {
+        branches.corner
+    } else {
+        branches.tee
+    };
+
     if visited.contains_key(&pid) {
         // malformed input can describe a ppid cycle; stop instead of recursing forever
-        let _ = writeln!(out, "{}[{}] <cycle>", "  ".repeat(depth), pid);
+        let _ = writeln!(out, "{prefix}{connector}[{pid}] <cycle>");
         return;
     }
     visited.insert(pid, true);
 
     let command = procs.get(&pid).map(|p| p.command.as_str()).unwrap_or("?");
-    let _ = writeln!(out, "{}[{}] {}", "  ".repeat(depth), pid, command);
+    let _ = writeln!(out, "{prefix}{connector}[{pid}] {command}");
 
     if let Some(kids) = children.get(&pid) {
-        for &child in kids {
-            print_tree(child, procs, children, depth + 1, out, visited);
+        let child_prefix = if is_root {
+            String::new()
+        } else if is_last {
+            format!("{prefix}{}", branches.blank)
+        } else {
+            format!("{prefix}{}", branches.vertical)
+        };
+        let last_child = kids.len().saturating_sub(1);
+        for (i, &child) in kids.iter().enumerate() {
+            print_tree(
+                child,
+                procs,
+                children,
+                &child_prefix,
+                i == last_child,
+                false,
+                out,
+                visited,
+                branches,
+            );
         }
     }
 }

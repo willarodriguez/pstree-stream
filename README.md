@@ -21,16 +21,31 @@ Example output:
 
 ```
 [1] init
-  [412] sshd
-    [8831] bash
-      [9102] pstree-stream
-  [900] cron
+├─ [412] sshd
+│  └─ [8831] bash
+│     └─ [9102] pstree-stream
+└─ [900] cron
 ```
 
 Show just one subtree:
 
 ```
 ps -eo pid=,ppid=,comm= | pstree-stream --root 412
+```
+
+Use plain ASCII instead of the Unicode box-drawing characters, for
+terminals or fonts that don't render them cleanly:
+
+```
+ps -eo pid=,ppid=,comm= | pstree-stream --ascii
+```
+
+```
+[1] init
+|- [412] sshd
+|  `- [8831] bash
+|     `- [9102] pstree-stream
+`- [900] cron
 ```
 
 ## Input format
@@ -50,5 +65,5 @@ Standard library only - no third-party dependencies.
 
 ## Status
 
-Early skeleton. Output is in input order, not sorted; no --ascii or
---wide flags yet. See the roadmap in commit history for what's next.
+Early skeleton. Output is in input order, not sorted; no --wide flag
+yet. See the roadmap in commit history for what's next.
