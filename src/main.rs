@@ -14,9 +14,17 @@ struct Proc {
     command: String,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum SortOrder {
+    // order of first appearance in the input
+    Input,
+    Pid,
+}
+
 struct Options {
     root: Option<u32>,
     ascii: bool,
+    sort: SortOrder,
 }
 
 struct BranchChars {
@@ -82,9 +90,14 @@ fn main() {
         }
     }
 
-    let children = build_children_index(&procs, &order);
+    let mut children = build_children_index(&procs, &order);
+    if opts.sort == SortOrder::Pid {
+        for kids in children.values_mut() {
+            kids.sort_unstable();
+        }
+    }
 
-    let roots: Vec<u32> = match opts.root {
+    let mut roots: Vec<u32> = match opts.root {
         Some(pid) => {
             if procs.contains_key(&pid) {
                 vec![pid]
@@ -102,6 +115,10 @@ fn main() {
             })
             .collect(),
     };
+
+    if opts.sort == SortOrder::Pid {
+        roots.sort_unstable();
+    }
 
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -126,6 +143,7 @@ fn parse_args(args: &[String]) -> Options {
     let mut opts = Options {
         root: None,
         ascii: false,
+        sort: SortOrder::Input,
     };
     let mut i = 1;
     while i < args.len() {
@@ -150,6 +168,21 @@ fn parse_args(args: &[String]) -> Options {
                 opts.ascii = true;
                 i += 1;
             }
+            "--sort" => {
+                let value = args.get(i + 1).unwrap_or_else(|| {
+                    eprintln!("pstree-stream: --sort requires 'pid' or 'input'");
+                    exit(1);
+                });
+                opts.sort = match value.as_str() {
+                    "pid" => SortOrder::Pid,
+                    "input" => SortOrder::Input,
+                    _ => {
+                        eprintln!("pstree-stream: unknown sort order '{value}'");
+                        exit(1);
+                    }
+                };
+                i += 2;
+            }
             other => {
                 eprintln!("pstree-stream: unknown argument '{other}'");
                 print_usage();
@@ -161,7 +194,7 @@ fn parse_args(args: &[String]) -> Options {
 }
 
 fn print_usage() {
-    eprintln!("usage: pstree-stream [--root PID] [--ascii]");
+    eprintln!("usage: pstree-stream [--root PID] [--ascii] [--sort pid|input]");
     eprintln!("reads lines of 'PID PPID COMMAND' from stdin and prints a tree");
 }
 

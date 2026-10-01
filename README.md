@@ -48,6 +48,14 @@ ps -eo pid=,ppid=,comm= | pstree-stream --ascii
 `- [900] cron
 ```
 
+By default siblings appear in the order they first showed up in the
+input. That depends on how `ps` happened to order its rows, so for output
+that is the same from run to run, sort siblings by pid:
+
+```
+ps -eo pid=,ppid=,comm= | pstree-stream --sort pid
+```
+
 ## Input format
 
 Each line: `<pid> <ppid> <command>`, whitespace separated. Anything
@@ -65,5 +73,5 @@ Standard library only - no third-party dependencies.
 
 ## Status
 
-Early skeleton. Output is in input order, not sorted; no --wide flag
-yet. See the roadmap in commit history for what's next.
+Early skeleton. Output is in input order unless --sort pid is given; no
+--wide flag yet. See the roadmap in commit history for what's next.
